@@ -3,9 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
+    request: { headers: request.headers },
   })
 
   const supabase = createServerClient(
@@ -13,11 +11,12 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
+        getAll() { return request.cookies.getAll() },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
+            // Sinkronkan cookie antara request dan response agar sesi tidak terputus
+            request.cookies.set(name, value)
+            response = NextResponse.next({ request })
             response.cookies.set(name, value, options)
           })
         },
@@ -25,20 +24,17 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Refresh session
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
+  // PENTING: getUser() secara otomatis me-refresh token jika expired
+  const { data: { user } } = await supabase.auth.getUser()
   const { pathname } = request.nextUrl
 
-  // Skenario A: Jika belum login mencoba akses dashboard
-  if (!session && pathname.startsWith('/dashboard')) {
+  // Proteksi Rute: Jika belum login akses /dashboard
+  if (!user && pathname.startsWith('/dashboard')) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // Skenario B: Jika sudah login mencoba akses login/register
-  if (session && (pathname === '/login' || pathname === '/register')) {
+  // Proteksi Rute: Jika sudah login akses /login atau /register
+  if (user && (pathname === '/login' || pathname === '/register')) {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 
@@ -46,7 +42,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    '/((?!_next/static|_next/image|favicon.ico).*)',
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 }
